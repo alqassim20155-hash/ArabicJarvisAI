@@ -5,6 +5,8 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.content.ComponentName
+import android.content.pm.PackageManager.NameNotFoundException
 import android.os.Handler
 import android.os.Looper
 import android.speech.RecognizerIntent
@@ -38,6 +40,25 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var widgetVoiceRequest by mutableStateOf(false)
     private val prefs by lazy { getSharedPreferences("server", MODE_PRIVATE) }
     private var currentLanguage = "ar"
+
+    private val termuxPermission = "com.termux.permission.RUN_COMMAND"
+    private fun dispatchTermux(action: String): Boolean {
+        return try {
+            val intent = Intent("com.termux.RUN_COMMAND").apply {
+                component = ComponentName("com.termux", "com.termux.app.RunCommandService")
+                putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
+                putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf(
+                    "/data/data/com.termux/files/home/.local/bin/jarvis-control", action
+                ))
+                putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home")
+                putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
+            }
+            startService(intent) != null
+        } catch (e: Exception) {
+            android.util.Log.e("ArabicJarvis", "Termux command request failed", e)
+            false
+        }
+    }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -79,6 +100,79 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             var reply by remember { mutableStateOf("جارفيس جاهز. اختر اللغة وطريقة الاتصال.") }
             var busy by remember { mutableStateOf(false) }
             var activeConnection by remember { mutableStateOf("—") }
+            var serverState by remember { mutableStateOf("غير مفحوص") }
+            var serverBusy by remember { mutableStateOf(false) }
+            var confirmStop by remember { mutableStateOf(false) }
+            var pendingTermuxAction by remember { mutableStateOf<String?>(null) }
+
+            fun announceServer(text: String) {
+                reply = text
+                setVoice(language)
+                tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "server-result")
+            }
+
+            fun healthCheck(): Boolean = try {
+                listOf(11434, 8765).all { port ->
+                    val conn = URL("http://127.0.0.1:$port/health").openConnection() as HttpURLConnection
+                    conn.connectTimeout = 2500
+                    conn.readTimeout = 2500
+                    try { conn.responseCode == 200 } finally { conn.disconnect() }
+                }
+            } catch (_: Exception) { false }
+
+            fun runServerAction(action: String) {
+                if (serverBusy) return
+                serverBusy = true
+                serverState = "جاري ${if (action == "start") "التشغيل" else if (action == "stop") "الإيقاف" else "الفحص"}..."
+                if (action != "status" && !dispatchTermux(action)) {
+                    serverBusy = false
+                    serverState = "تعذر إرسال الأمر"
+                    announceServer("تعذر إرسال الأمر إلى ترمكس، سيدي")
+                    return
+                }
+                Thread {
+                    val desired = action != "stop"
+                    val deadline = System.currentTimeMillis() + if (action == "status") 1000L else 120000L
+                    var ready = healthCheck()
+                    while (action != "status" && ready != desired && System.currentTimeMillis() < deadline) {
+                        Thread.sleep(1500)
+                        ready = healthCheck()
+                    }
+                    val success = action == "status" || ready == desired
+                    mainHandler.post {
+                        serverBusy = false
+                        serverState = if (ready) "يعمل" else "متوقف / غير متاح"
+                        val result = when {
+                            action == "status" && ready -> "السيرفر يعمل وجاهز، سيدي"
+                            action == "status" -> "السيرفر غير جاهز، سيدي"
+                            success && action == "start" -> "تم الأمر سيدي، جارفيس جاهز لخدمتك"
+                            success && action == "stop" -> "تم الأمر سيدي، تم إيقاف السيرفر"
+                            else -> "تعذر إكمال الأمر سيدي، تحقق من ترمكس"
+                        }
+                        announceServer(result)
+                    }
+                }.start()
+            }
+
+            val termuxPermissionLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission()
+            ) { granted ->
+                val action = pendingTermuxAction
+                pendingTermuxAction = null
+                if (granted && action != null) runServerAction(action)
+                else announceServer("لم تُمنح صلاحية التحكم في ترمكس")
+            }
+
+            fun requestServerAction(action: String) {
+                if (action == "status") { runServerAction(action); return }
+                if (checkSelfPermission(termuxPermission) == PackageManager.PERMISSION_GRANTED) {
+                    runServerAction(action)
+                } else {
+                    pendingTermuxAction = action
+                    termuxPermissionLauncher.launch(termuxPermission)
+                }
+            }
+
 
             fun switchLanguage(next: String) {
                 language = next
@@ -107,6 +201,21 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
             fun send(text: String) {
                 if (busy || text.isBlank()) return
+                val command = text.lowercase(Locale.ROOT).trim()
+                val serverMention = listOf("سيرفر", "السيرفر", "الخادم", "server").any { command.contains(it) }
+                if (serverMention) {
+                    when {
+                        listOf("شغل", "شغّل", "ابدأ", "start", "turn on").any { command.contains(it) } -> {
+                            requestServerAction("start"); return
+                        }
+                        listOf("أوقف", "اوقف", "وقف", "stop", "turn off").any { command.contains(it) } -> {
+                            confirmStop = true; return
+                        }
+                        listOf("حالة", "افحص", "status", "check").any { command.contains(it) } -> {
+                            requestServerAction("status"); return
+                        }
+                    }
+                }
                 val change = languageCommand(text)
                 if (change != null) { switchLanguage(change); return }
                 saveSettings()
@@ -201,7 +310,25 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
             MaterialTheme {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Arabic Jarvis AI v2", style = MaterialTheme.typography.headlineSmall)
+                    Text("Arabic Jarvis AI v3", style = MaterialTheme.typography.headlineSmall)
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("التحكم في السيرفر", style = MaterialTheme.typography.titleLarge)
+                            Text("الحالة: $serverState")
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { requestServerAction("start") }, enabled = !serverBusy, modifier = Modifier.weight(1f)) { Text("▶ تشغيل") }
+                                Button(onClick = { confirmStop = true }, enabled = !serverBusy, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("■ إيقاف") }
+                            }
+                            OutlinedButton(onClick = { requestServerAction("status") }, enabled = !serverBusy, modifier = Modifier.fillMaxWidth()) { Text("↻ فحص حالة السيرفر") }
+                        }
+                    }
+                    if (confirmStop) {
+                        AlertDialog(onDismissRequest = { confirmStop = false },
+                            title = { Text("تأكيد إيقاف السيرفر") },
+                            text = { Text("سيتم إيقاف OpenJarvis ومحرك llama.cpp. هل تريد المتابعة؟") },
+                            confirmButton = { TextButton(onClick = { confirmStop = false; requestServerAction("stop") }) { Text("نعم، أوقف") } },
+                            dismissButton = { TextButton(onClick = { confirmStop = false }) { Text("إلغاء") } })
+                    }
                     Text("الاتصال الحالي: $activeConnection")
                     Text("وضع الاتصال", style = MaterialTheme.typography.titleMedium)
                     listOf("auto" to "تلقائي", "local" to "الهاتف", "lan" to "Wi-Fi", "remote" to "خارجي").forEach { (key, title) ->
