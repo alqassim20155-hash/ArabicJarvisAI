@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             connection.requestMethod = if (action == "status") "GET" else "POST"
             connection.connectTimeout = 3000
             connection.readTimeout = if (action == "status") 6000 else 125000
-            connection.setRequestProperty("Authorization", "Bearer $token")
+            connection.setRequestProperty("Authorization", "Bearer $token.trim()")
             connection.setRequestProperty("Accept", "application/json")
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
@@ -177,7 +177,10 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                                 e.message?.contains("401") == true -> "رمز Bridge غير صحيح"
                                 e.message?.contains("stop_requires_safe_process_audit") == true -> "الإيقاف معطّل مؤقتًا لحماية عمليات السيرفر"
                                 e is java.net.ConnectException -> "خدمة Bridge متوقفة؛ شغّل jarvis-bridge من Termux"
-                                else -> "فشل الاتصال بخدمة التحكم: ${e.javaClass.simpleName}"
+                                e is java.net.SocketTimeoutException -> "انتهت مهلة الاتصال: ${e.message.orEmpty()}"
+                                e is java.net.UnknownServiceException -> "Android منع HTTP المحلي: ${e.message.orEmpty()}"
+                                e is java.net.SocketException -> "خطأ الشبكة: ${e.message.orEmpty()}"
+                                else -> "${e.javaClass.simpleName}: ${e.message.orEmpty().take(180)}"
                             }
                             reply = detail
                             announceServer(detail)
@@ -415,6 +418,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                                 Text("التحكم بالسيرفر", style = MaterialTheme.typography.titleLarge)
                                 Text("الحالة: $serverState")
                                 Text("Bridge: 127.0.0.1:18766", style = MaterialTheme.typography.bodySmall)
+                                Text("فحص Bridge مستقل عن اتصال المحادثة", style = MaterialTheme.typography.bodySmall)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(onClick = { requestServerAction("start") }, enabled = !serverBusy, modifier = Modifier.weight(1f)) { Text("▶ تشغيل") }
                                     Button(onClick = { confirmStop = true }, enabled = !serverBusy, modifier = Modifier.weight(1f),
