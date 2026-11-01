@@ -51,20 +51,29 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private val prefs by lazy { getSharedPreferences("server", MODE_PRIVATE) }
     private var currentLanguage = "ar"
 
-    private val termuxPermission = "com.termux.permission.RUN_COMMAND"
-    private fun dispatchTermux(action: String): Boolean {
-        return try {
-            val intent = Intent("com.termux.RUN_COMMAND").apply {
-                component = ComponentName("com.termux", "com.termux.app.RunCommandService")
-                putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/home/.local/bin/jarvis-control")
-                putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf(action))
-                putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home")
-                putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
+    private fun bridgeRequest(action: String, token: String): JSONObject {
+        require(action in setOf("start", "stop", "status"))
+        val endpoint = when (action) {
+            "status" -> "/v1/status"
+            else -> "/v1/$action"
+        }
+        val connection = URL("http://127.0.0.1:18766$endpoint").openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = if (action == "status") "GET" else "POST"
+            connection.connectTimeout = 3000
+            connection.readTimeout = if (action == "status") 6000 else 125000
+            connection.setRequestProperty("Authorization", "Bearer $token")
+            connection.setRequestProperty("Accept", "application/json")
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val response = JSONObject(body)
+            if (code !in 200..299) {
+                throw IllegalStateException("HTTP $code: ${response.optString("error", "bridge_error")}")
             }
-            startService(intent) != null
-        } catch (e: Exception) {
-            android.util.Log.e("ArabicJarvis", "Termux command request failed", e)
-            false
+            return response
+        } finally {
+            connection.disconnect()
         }
     }
 
@@ -113,7 +122,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             var confirmStop by remember { mutableStateOf(false) }
             var page by remember { mutableStateOf("home") }
             var driving by remember { mutableStateOf(false) }
-            var pendingTermuxAction by remember { mutableStateOf<String?>(null) }
+            var bridgeToken by remember { mutableStateOf(prefs.getString("bridgeToken", "") ?: "") }
 
             fun announceServer(text: String) {
                 reply = text
@@ -121,68 +130,63 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "server-result")
             }
 
-            fun healthCheck(): Boolean = try {
-                listOf(11434, 8765).all { port ->
-                    val conn = URL("http://127.0.0.1:$port/health").openConnection() as HttpURLConnection
-                    conn.connectTimeout = 2500
-                    conn.readTimeout = 2500
-                    try { conn.responseCode == 200 } finally { conn.disconnect() }
-                }
-            } catch (_: Exception) { false }
-
             fun runServerAction(action: String) {
                 if (serverBusy) return
-                serverBusy = true
-                serverState = "جاري ${if (action == "start") "التشغيل" else if (action == "stop") "الإيقاف" else "الفحص"}..."
-                if (action != "status" && !dispatchTermux(action)) {
-                    serverBusy = false
-                    serverState = "تعذر إرسال الأمر"
-                    announceServer("تعذر إرسال الأمر إلى ترمكس، سيدي")
+                val token = bridgeToken.trim()
+                if (token.isEmpty()) {
+                    serverState = "يلزم إعداد رمز Bridge"
+                    announceServer(if (language == "en") "Please set the local bridge token in settings, sir"
+                        else "أدخل رمز خدمة التحكم المحلية من الإعدادات، سيدي")
+                    page = "settings"
                     return
                 }
+                serverBusy = true
+                serverState = when (action) {
+                    "start" -> "جاري التشغيل..."
+                    "stop" -> "جاري الإيقاف..."
+                    else -> "جاري الفحص..."
+                }
                 Thread {
-                    val desired = action != "stop"
-                    val deadline = System.currentTimeMillis() + if (action == "status") 1000L else 120000L
-                    var ready = healthCheck()
-                    while (action != "status" && ready != desired && System.currentTimeMillis() < deadline) {
-                        Thread.sleep(1500)
-                        ready = healthCheck()
-                    }
-                    val success = action == "status" || ready == desired
-                    mainHandler.post {
-                        serverBusy = false
-                        serverState = if (ready) "يعمل" else "متوقف / غير متاح"
-                        val result = when {
-                            action == "status" && ready -> "السيرفر يعمل وجاهز، سيدي"
-                            action == "status" -> "السيرفر غير جاهز، سيدي"
-                            success && action == "start" -> "تم الأمر سيدي، جارفيس جاهز لخدمتك"
-                            success && action == "stop" -> "تم الأمر سيدي، تم إيقاف السيرفر"
-                            else -> "تعذر إكمال الأمر سيدي، تحقق من ترمكس"
+                    try {
+                        val response = bridgeRequest(action, token)
+                        val ready = response.optBoolean("ready", false)
+                        val llama = response.optBoolean("llama", false)
+                        val openjarvis = response.optBoolean("openjarvis", false)
+                        mainHandler.post {
+                            serverBusy = false
+                            serverState = when {
+                                ready -> "يعمل"
+                                llama || openjarvis -> "يعمل جزئيًا"
+                                else -> "متوقف / غير متاح"
+                            }
+                            val result = when {
+                                action == "status" && ready -> if (language == "en") "Server is ready, sir" else "السيرفر يعمل وجاهز، سيدي"
+                                action == "status" -> if (language == "en") "Server is not fully ready, sir" else "السيرفر غير جاهز بالكامل، سيدي"
+                                action == "start" && ready -> if (language == "en") "Server is ready, sir" else "تم تشغيل السيرفر وهو جاهز، سيدي"
+                                action == "stop" && !llama && !openjarvis -> if (language == "en") "Server stopped, sir" else "تم إيقاف السيرفر، سيدي"
+                                else -> if (language == "en") "Server action did not complete, sir" else "لم يكتمل تنفيذ الأمر، سيدي"
+                            }
+                            announceServer(result)
                         }
-                        announceServer(result)
+                    } catch (e: Exception) {
+                        android.util.Log.e("ArabicJarvis", "Bridge action failed: $action", e)
+                        mainHandler.post {
+                            serverBusy = false
+                            serverState = "تعذر تنفيذ الأمر"
+                            val detail = when {
+                                e.message?.contains("401") == true -> "رمز Bridge غير صحيح"
+                                e.message?.contains("stop_requires_safe_process_audit") == true -> "الإيقاف معطّل مؤقتًا لحماية عمليات السيرفر"
+                                e is java.net.ConnectException -> "خدمة Bridge متوقفة؛ شغّل jarvis-bridge من Termux"
+                                else -> "فشل الاتصال بخدمة التحكم: ${e.javaClass.simpleName}"
+                            }
+                            reply = detail
+                            announceServer(detail)
+                        }
                     }
                 }.start()
             }
 
-            val termuxPermissionLauncher = rememberLauncherForActivityResult(
-                ActivityResultContracts.RequestPermission()
-            ) { granted ->
-                val action = pendingTermuxAction
-                pendingTermuxAction = null
-                if (granted && action != null) runServerAction(action)
-                else announceServer("لم تُمنح صلاحية التحكم في ترمكس")
-            }
-
-            fun requestServerAction(action: String) {
-                if (action == "status") { runServerAction(action); return }
-                if (checkSelfPermission(termuxPermission) == PackageManager.PERMISSION_GRANTED) {
-                    runServerAction(action)
-                } else {
-                    pendingTermuxAction = action
-                    termuxPermissionLauncher.launch(termuxPermission)
-                }
-            }
-
+            fun requestServerAction(action: String) = runServerAction(action)
 
             fun switchLanguage(next: String) {
                 language = next
@@ -206,7 +210,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             fun saveSettings() {
                 prefs.edit().putString("mode", mode).putString("lanUrl", lanUrl.trim())
                     .putString("lanToken", lanToken).putString("remoteUrl", remoteUrl.trim())
-                    .putString("remoteToken", remoteToken).putString("language", language).apply()
+                    .putString("remoteToken", remoteToken).putString("language", language)
+                    .putString("bridgeToken", bridgeToken.trim()).apply()
             }
 
             fun phoneCommand(input: String): Boolean {
@@ -373,6 +378,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                                 Text(title)
                             }
                         }
+                        Text("التحكم المحلي: 127.0.0.1:18766", style = MaterialTheme.typography.bodyMedium)
+                        OutlinedTextField(bridgeToken, { bridgeToken = it; prefs.edit().putString("bridgeToken", it.trim()).apply() },
+                            label = { Text("رمز Jarvis Bridge") },
+                            visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(),
+                            singleLine = true)
+                        Text("انسخ الرمز من Termux ولا تشاركه أو ترفعه إلى GitHub.", style = MaterialTheme.typography.bodySmall)
                         OutlinedTextField(lanUrl, { lanUrl = it }, label = { Text("LAN HTTPS") }, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(lanToken, { lanToken = it }, label = { Text("رمز LAN") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(remoteUrl, { remoteUrl = it }, label = { Text("Remote HTTPS") }, modifier = Modifier.fillMaxWidth())
@@ -403,6 +414,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Text("التحكم بالسيرفر", style = MaterialTheme.typography.titleLarge)
                                 Text("الحالة: $serverState")
+                                Text("Bridge: 127.0.0.1:18766", style = MaterialTheme.typography.bodySmall)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(onClick = { requestServerAction("start") }, enabled = !serverBusy, modifier = Modifier.weight(1f)) { Text("▶ تشغيل") }
                                     Button(onClick = { confirmStop = true }, enabled = !serverBusy, modifier = Modifier.weight(1f),
