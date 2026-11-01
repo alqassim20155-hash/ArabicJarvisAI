@@ -4,5 +4,9 @@
  <queries><intent><action android:name="android.speech.RecognitionService"/></intent><intent><action android:name="android.intent.action.TTS_SERVICE"/></intent></queries>
  <application android:label="Arabic Jarvis AI" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:usesCleartextTraffic="false" android:supportsRtl="true">
   <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
+  <receiver android:name=".JarvisWidgetProvider" android:exported="true">
+   <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/></intent-filter>
+   <meta-data android:name="android.appwidget.provider" android:resource="@xml/jarvis_widget_info"/>
+  </receiver>
  </application>
 </manifest>

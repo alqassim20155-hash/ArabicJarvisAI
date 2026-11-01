@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.speech.RecognizerIntent
@@ -29,9 +30,16 @@ import java.util.Locale
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var widgetVoiceRequest by mutableStateOf(false)
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == JarvisWidgetProvider.ACTION_VOICE) widgetVoiceRequest = true
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tts = TextToSpeech(this, this)
+        widgetVoiceRequest = intent?.action == JarvisWidgetProvider.ACTION_VOICE
         val prefs = getSharedPreferences("server", MODE_PRIVATE)
         setContent {
             var address by remember { mutableStateOf(prefs.getString("url", "") ?: "") }
@@ -78,6 +86,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 } catch (_: Exception) { reply = "خدمة التعرف على الكلام غير متوفرة" }
             }
             val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) startVoice() else reply = "صلاحية الميكروفون مطلوبة" }
+            LaunchedEffect(widgetVoiceRequest) {
+                if (widgetVoiceRequest) {
+                    widgetVoiceRequest = false
+                    if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startVoice()
+                    else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            }
             val context = LocalContext.current
             MaterialTheme {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
