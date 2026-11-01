@@ -6,6 +6,15 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.content.ComponentName
+import android.provider.Settings
+import android.media.AudioManager
+import android.os.BatteryManager
+import android.content.Context
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.Alignment
 import android.content.pm.PackageManager.NameNotFoundException
 import android.os.Handler
 import android.os.Looper
@@ -23,6 +32,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -46,10 +56,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         return try {
             val intent = Intent("com.termux.RUN_COMMAND").apply {
                 component = ComponentName("com.termux", "com.termux.app.RunCommandService")
-                putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
-                putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf(
-                    "/data/data/com.termux/files/home/.local/bin/jarvis-control", action
-                ))
+                putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/home/.local/bin/jarvis-control")
+                putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf(action))
                 putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home")
                 putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
             }
@@ -103,6 +111,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             var serverState by remember { mutableStateOf("غير مفحوص") }
             var serverBusy by remember { mutableStateOf(false) }
             var confirmStop by remember { mutableStateOf(false) }
+            var page by remember { mutableStateOf("home") }
+            var driving by remember { mutableStateOf(false) }
             var pendingTermuxAction by remember { mutableStateOf<String?>(null) }
 
             fun announceServer(text: String) {
@@ -199,6 +209,34 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     .putString("remoteToken", remoteToken).putString("language", language).apply()
             }
 
+            fun phoneCommand(input: String): Boolean {
+                val command = input.lowercase(Locale.ROOT)
+                return when {
+                    listOf("افتح الإعدادات", "افتح الاعدادات", "open settings").any { command.contains(it) } -> {
+                        startActivity(Intent(Settings.ACTION_SETTINGS)); true
+                    }
+                    listOf("حالة البطارية", "كم البطارية", "battery level").any { command.contains(it) } -> {
+                        val battery = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+                        val level = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                        announceServer(if (language == "en") "Battery level is $level percent, sir" else "مستوى البطارية $level بالمئة، سيدي")
+                        true
+                    }
+                    listOf("ارفع الصوت", "increase volume", "volume up").any { command.contains(it) } -> {
+                        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                        audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0)
+                        announceServer(if (language == "en") "Volume increased, sir" else "تم رفع الصوت سيدي")
+                        true
+                    }
+                    listOf("اخفض الصوت", "decrease volume", "volume down").any { command.contains(it) } -> {
+                        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                        audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
+                        announceServer(if (language == "en") "Volume decreased, sir" else "تم خفض الصوت سيدي")
+                        true
+                    }
+                    else -> false
+                }
+            }
+
             fun send(text: String) {
                 if (busy || text.isBlank()) return
                 val command = text.lowercase(Locale.ROOT).trim()
@@ -216,6 +254,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         }
                     }
                 }
+                if (phoneCommand(text)) return
                 val change = languageCommand(text)
                 if (change != null) { switchLanguage(change); return }
                 saveSettings()
@@ -308,50 +347,92 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
-            MaterialTheme {
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Arabic Jarvis AI v3", style = MaterialTheme.typography.headlineSmall)
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("التحكم في السيرفر", style = MaterialTheme.typography.titleLarge)
-                            Text("الحالة: $serverState")
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { requestServerAction("start") }, enabled = !serverBusy, modifier = Modifier.weight(1f)) { Text("▶ تشغيل") }
-                                Button(onClick = { confirmStop = true }, enabled = !serverBusy, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("■ إيقاف") }
+            MaterialTheme(colorScheme = darkColorScheme(
+                primary = Color(0xFF58D7FF), onPrimary = Color(0xFF061421),
+                background = Color(0xFF071522), surface = Color(0xFF13283B),
+                onBackground = Color(0xFFE7F7FF), onSurface = Color(0xFFE7F7FF)
+            )) {
+                Column(Modifier.fillMaxSize().background(Color(0xFF071522)).verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column {
+                            Text("J.A.R.V.I.S.", style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold, color = Color(0xFF67DBFF))
+                            Text("PERSONAL AI  •  VERSION 4", style = MaterialTheme.typography.labelSmall)
+                        }
+                        TextButton(onClick = { page = if (page == "settings") "home" else "settings" }) {
+                            Text(if (page == "settings") "الرئيسية" else "⚙ الإعدادات")
+                        }
+                    }
+                    if (page == "settings") {
+                        Text("الاتصال والصوت", style = MaterialTheme.typography.titleLarge)
+                        listOf("auto" to "تلقائي", "local" to "الهاتف", "lan" to "Wi-Fi", "remote" to "خارجي").forEach { (key, title) ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = mode == key, onClick = { mode = key; saveSettings() })
+                                Text(title)
                             }
-                            OutlinedButton(onClick = { requestServerAction("status") }, enabled = !serverBusy, modifier = Modifier.fillMaxWidth()) { Text("↻ فحص حالة السيرفر") }
+                        }
+                        OutlinedTextField(lanUrl, { lanUrl = it }, label = { Text("LAN HTTPS") }, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(lanToken, { lanToken = it }, label = { Text("رمز LAN") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(remoteUrl, { remoteUrl = it }, label = { Text("Remote HTTPS") }, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(remoteToken, { remoteToken = it }, label = { Text("رمز Remote") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                        Button(onClick = { saveSettings(); reply = "تم حفظ إعدادات الاتصال" }, modifier = Modifier.fillMaxWidth()) { Text("حفظ الإعدادات") }
+                        Text("اللغة", style = MaterialTheme.typography.titleMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { switchLanguage("ar") }) { Text(if (language == "ar") "✓ العربية" else "العربية") }
+                            Button(onClick = { switchLanguage("en") }) { Text(if (language == "en") "✓ English" else "English") }
+                        }
+                        Text("الاستماع التلقائي لكلمة جارفيس يحتاج محرك Wake Word محليًا. غير مفعل في هذه النسخة التجريبية.", style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+                            Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text("◉", fontSize = 78.sp, color = Color(0xFF59D9FF))
+                                Text(if (language == "en") "At your service, sir" else "في خدمتك سيدي", style = MaterialTheme.typography.titleLarge)
+                                Text("اضغط الميكروفون للتحدث • الاستماع التلقائي قيد التطوير", style = MaterialTheme.typography.bodySmall)
+                                Button(onClick = {
+                                    if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startVoice()
+                                    else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                                }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                                    Text(if (language == "en") "🎤 Speak to Jarvis" else "🎤 تحدث مع جارفيس")
+                                }
+                            }
+                        }
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text("التحكم بالسيرفر", style = MaterialTheme.typography.titleLarge)
+                                Text("الحالة: $serverState")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(onClick = { requestServerAction("start") }, enabled = !serverBusy, modifier = Modifier.weight(1f)) { Text("▶ تشغيل") }
+                                    Button(onClick = { confirmStop = true }, enabled = !serverBusy, modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("■ إيقاف") }
+                                }
+                                OutlinedButton(onClick = { requestServerAction("status") }, enabled = !serverBusy,
+                                    modifier = Modifier.fillMaxWidth()) { Text("↻ فحص الحالة") }
+                                Text("الاتصال: $activeConnection", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("وضع القيادة", modifier = Modifier.weight(1f))
+                            Switch(checked = driving, onCheckedChange = { driving = it })
+                        }
+                        OutlinedTextField(message, { message = it }, label = { Text(if (language == "en") "Your command" else "اكتب أمرك") },
+                            modifier = Modifier.fillMaxWidth(), minLines = if (driving) 1 else 2)
+                        Button(onClick = { send(message) }, enabled = !busy && message.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+                            Text(if (busy) "جاري المعالجة..." else "إرسال إلى جارفيس")
+                        }
+                        Card(Modifier.fillMaxWidth()) { Text(reply, Modifier.padding(16.dp)) }
+                        if (!driving) {
+                            Text("أوامر الهاتف: افتح الإعدادات، حالة البطارية، ارفع الصوت، اخفض الصوت.", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     if (confirmStop) {
-                        AlertDialog(onDismissRequest = { confirmStop = false },
-                            title = { Text("تأكيد إيقاف السيرفر") },
-                            text = { Text("سيتم إيقاف OpenJarvis ومحرك llama.cpp. هل تريد المتابعة؟") },
-                            confirmButton = { TextButton(onClick = { confirmStop = false; requestServerAction("stop") }) { Text("نعم، أوقف") } },
+                        AlertDialog(onDismissRequest = { confirmStop = false }, title = { Text("تأكيد الإيقاف") },
+                            text = { Text("سيتم إيقاف OpenJarvis وllama.cpp. هل تريد المتابعة؟") },
+                            confirmButton = { TextButton(onClick = { confirmStop = false; requestServerAction("stop") }) { Text("إيقاف السيرفر") } },
                             dismissButton = { TextButton(onClick = { confirmStop = false }) { Text("إلغاء") } })
                     }
-                    Text("الاتصال الحالي: $activeConnection")
-                    Text("وضع الاتصال", style = MaterialTheme.typography.titleMedium)
-                    listOf("auto" to "تلقائي", "local" to "الهاتف", "lan" to "Wi-Fi", "remote" to "خارجي").forEach { (key, title) ->
-                        Row { RadioButton(selected = mode == key, onClick = { mode = key; saveSettings() }); Text(title, Modifier.padding(top = 12.dp)) }
-                    }
-                    OutlinedTextField(lanUrl, { lanUrl = it }, label = { Text("عنوان LAN HTTPS") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    OutlinedTextField(lanToken, { lanToken = it }, label = { Text("رمز LAN") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    OutlinedTextField(remoteUrl, { remoteUrl = it }, label = { Text("عنوان Remote HTTPS (اختياري)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    OutlinedTextField(remoteToken, { remoteToken = it }, label = { Text("رمز Remote") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    Button(onClick = { saveSettings(); reply = "تم حفظ إعدادات الاتصال" }, modifier = Modifier.fillMaxWidth()) { Text("حفظ الاتصال") }
-                    Text("لغة جارفيس", style = MaterialTheme.typography.titleMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { switchLanguage("ar") }) { Text(if (language == "ar") "✓ العربية" else "العربية") }
-                        Button(onClick = { switchLanguage("en") }) { Text(if (language == "en") "✓ English" else "English") }
-                    }
-                    OutlinedTextField(message, { message = it }, label = { Text(if (language == "en") "Your message" else "اكتب أمرك") }, modifier = Modifier.fillMaxWidth())
-                    Button(onClick = { send(message) }, enabled = !busy && message.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text(if (busy) "جاري المعالجة..." else "إرسال") }
-                    Button(onClick = {
-                        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startVoice()
-                        else micPermission.launch(Manifest.permission.RECORD_AUDIO)
-                    }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (language == "en") "🎤 Speak English" else "🎤 تحدث بالعربية") }
-                    Card(Modifier.fillMaxWidth()) { Text(reply, Modifier.padding(16.dp)) }
-                    Text("التبديل الصوتي: قل 'جارفيس تكلم بالإنجليزي' أو 'تكلم بالعربية'. جودة الصوت تعتمد على أصوات TTS المثبتة.", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
