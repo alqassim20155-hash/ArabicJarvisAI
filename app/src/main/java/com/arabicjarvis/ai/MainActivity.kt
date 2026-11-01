@@ -42,31 +42,37 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         widgetVoiceRequest = intent?.action == JarvisWidgetProvider.ACTION_VOICE
         val prefs = getSharedPreferences("server", MODE_PRIVATE)
         setContent {
-            var address by remember { mutableStateOf(prefs.getString("url", "") ?: "") }
+            var address by remember { mutableStateOf(prefs.getString("url", "http://127.0.0.1:8765") ?: "") }
             var token by remember { mutableStateOf(prefs.getString("token", "") ?: "") }
             var message by remember { mutableStateOf("") }
-            var reply by remember { mutableStateOf("اضبط رابط السيرفر HTTPS ورمز الوصول، ثم ابدأ المحادثة.") }
+            var reply by remember { mutableStateOf("اضبط عنوان OpenJarvis ورمز الوصول، ثم ابدأ المحادثة.") }
             var busy by remember { mutableStateOf(false) }
             fun send(text: String) {
                 if (busy || text.isBlank()) return
-                if (!address.startsWith("https://")) { reply = "يجب استخدام رابط HTTPS صالح"; return }
+                if (!(address.startsWith("https://") || address == "http://127.0.0.1:8765")) { reply = "استخدم الاتصال المحلي أو رابط HTTPS صالح"; return }
                 prefs.edit().putString("url", address.trimEnd('/')).putString("token", token).apply()
                 busy = true
                 Thread {
                     val result = try {
-                        val conn = URL(address.trimEnd('/') + "/v1/ask").openConnection() as HttpURLConnection
+                        val conn = URL(address.trimEnd('/') + "/v1/chat/completions").openConnection() as HttpURLConnection
                         conn.requestMethod = "POST"
                         conn.connectTimeout = 15000
                         conn.readTimeout = 135000
                         conn.doOutput = true
                         conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
                         conn.setRequestProperty("Authorization", "Bearer $token")
-                        conn.outputStream.use { it.write(JSONObject().put("message", text).toString().toByteArray(Charsets.UTF_8)) }
+                        conn.outputStream.use { it.write(JSONObject()
+        .put("model", "/opt/arabic-jarvis/models/qwen2.5-1.5b-instruct-q4_k_m.gguf")
+        .put("messages", org.json.JSONArray().put(
+            JSONObject().put("role", "user").put("content", text)
+        ))
+        .put("max_tokens", 256)
+        .put("stream", false).toString().toByteArray(Charsets.UTF_8)) }
                         val status = conn.responseCode
                         val response = if (status in 200..299) conn.inputStream.bufferedReader().use { it.readText() }
                             else ""
                         conn.disconnect()
-                        if (status in 200..299) JSONObject(response).getString("reply") else "خطأ من السيرفر: HTTP $status"
+                        if (status in 200..299) JSONObject(response).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content") else "خطأ من السيرفر: HTTP $status"
                     } catch (e: Exception) { "تعذر الاتصال: ${e.javaClass.simpleName}" }
                     mainHandler.post { reply = result; busy = false; if (!result.startsWith("خطأ") && !result.startsWith("تعذر")) tts?.speak(result, TextToSpeech.QUEUE_FLUSH, null, "answer") }
                 }.start()
@@ -98,7 +104,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("جارفيس العربي — OpenJarvis", style = MaterialTheme.typography.headlineSmall)
                     Text("تطبيق Android متصل بمحرك OpenJarvis على السيرفر")
-                    OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("رابط السيرفر HTTPS") }, placeholder = { Text("https://jarvis.example.com") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("عنوان OpenJarvis") }, placeholder = { Text("http://127.0.0.1:8765") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = token, onValueChange = { token = it }, label = { Text("رمز الوصول الخاص") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = message, onValueChange = { message = it }, label = { Text("اكتب أمرك بالعربية") }, modifier = Modifier.fillMaxWidth())
                     Button(onClick = { send(message) }, enabled = !busy && message.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text(if (busy) "جاري الاتصال..." else "إرسال إلى OpenJarvis") }
