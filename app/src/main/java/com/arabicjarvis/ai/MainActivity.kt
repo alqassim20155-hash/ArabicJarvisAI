@@ -91,6 +91,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             JarvisWidgetProvider.ACTION_CAMERA -> Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
             JarvisWidgetProvider.ACTION_SETTINGS -> Intent(Settings.ACTION_SETTINGS)
             JarvisWidgetProvider.ACTION_PHONE -> Intent(Intent.ACTION_DIAL)
+            JarvisWidgetProvider.ACTION_WIFI -> Intent(Settings.ACTION_WIFI_SETTINGS)
+            JarvisWidgetProvider.ACTION_BROWSER -> Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com"))
+            JarvisWidgetProvider.ACTION_MAPS -> Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q="))
+            JarvisWidgetProvider.ACTION_WHATSAPP -> packageManager.getLaunchIntentForPackage("com.whatsapp")
+            JarvisWidgetProvider.ACTION_YOUTUBE -> packageManager.getLaunchIntentForPackage("com.google.android.youtube")
             else -> null
         } ?: return
         try { startActivity(target) } catch (_: Exception) { /* No compatible activity */ }
@@ -282,6 +287,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     }
                     listOf("افتح الهاتف", "افتح الاتصال", "open dialer").any { command.contains(it) } -> {
                         startActivity(Intent(Intent.ACTION_DIAL)); true
+                    }
+                    listOf("افتح الواي فاي", "اعدادات الواي فاي", "open wifi settings").any { command.contains(it) } -> {
+                        startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)); true
+                    }
+                    listOf("افتح الخرائط", "افتح الخريطة", "open maps").any { command.contains(it) } -> {
+                        try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q="))) }
+                        catch (_: Exception) { announceServer("تطبيق الخرائط غير متاح") }
+                        true
                     }
                     listOf("افتح المتصفح", "open browser").any { command.contains(it) } -> {
                         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com"))); true

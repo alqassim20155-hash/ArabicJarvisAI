@@ -24,10 +24,15 @@ class JarvisWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.widget_chat, launch(ACTION_CHAT, 1002))
             views.setOnClickPendingIntent(R.id.widget_start, launch(ACTION_START, 1003))
             views.setOnClickPendingIntent(R.id.widget_stop, launch(ACTION_STOP, 1004))
-            views.setOnClickPendingIntent(R.id.widget_status, launch(ACTION_STATUS, 1005))
+            views.setOnClickPendingIntent(R.id.widget_status_action, launch(ACTION_STATUS, 1005))
             views.setOnClickPendingIntent(R.id.widget_camera, launch(ACTION_CAMERA, 1006))
             views.setOnClickPendingIntent(R.id.widget_settings, launch(ACTION_SETTINGS, 1007))
             views.setOnClickPendingIntent(R.id.widget_phone, launch(ACTION_PHONE, 1008))
+            views.setOnClickPendingIntent(R.id.widget_wifi, launch(ACTION_WIFI, 1009))
+            views.setOnClickPendingIntent(R.id.widget_browser, launch(ACTION_BROWSER, 1010))
+            views.setOnClickPendingIntent(R.id.widget_maps, launch(ACTION_MAPS, 1011))
+            views.setOnClickPendingIntent(R.id.widget_whatsapp, launch(ACTION_WHATSAPP, 1012))
+            views.setOnClickPendingIntent(R.id.widget_youtube, launch(ACTION_YOUTUBE, 1013))
             manager.updateAppWidget(id, views)
         }
     }
@@ -41,6 +46,11 @@ class JarvisWidgetProvider : AppWidgetProvider() {
         const val ACTION_CAMERA = "com.arabicjarvis.ai.WIDGET_CAMERA"
         const val ACTION_SETTINGS = "com.arabicjarvis.ai.WIDGET_SETTINGS"
         const val ACTION_PHONE = "com.arabicjarvis.ai.WIDGET_PHONE"
+        const val ACTION_WIFI = "com.arabicjarvis.ai.WIDGET_WIFI"
+        const val ACTION_BROWSER = "com.arabicjarvis.ai.WIDGET_BROWSER"
+        const val ACTION_MAPS = "com.arabicjarvis.ai.WIDGET_MAPS"
+        const val ACTION_WHATSAPP = "com.arabicjarvis.ai.WIDGET_WHATSAPP"
+        const val ACTION_YOUTUBE = "com.arabicjarvis.ai.WIDGET_YOUTUBE"
 
         fun updateStatus(context: Context, text: String) {
             val manager = AppWidgetManager.getInstance(context)
