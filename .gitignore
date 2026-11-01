@@ -1,0 +1,16 @@
+
+# Arabic Jarvis private credentials
+/network/token.txt
+/network/*.key
+/network/*.pem
+/network/*.crt
+
+# Local backups
+*.kt.bak
+
+# TLS certificates and private keys
+/network/certs/
+
+# Python generated files
+__pycache__/
+*.pyc
