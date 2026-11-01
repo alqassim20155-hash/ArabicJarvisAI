@@ -10,6 +10,12 @@ import android.provider.Settings
 import android.media.AudioManager
 import android.os.BatteryManager
 import android.content.Context
+import android.content.ClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
@@ -62,7 +68,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             connection.requestMethod = if (action == "status") "GET" else "POST"
             connection.connectTimeout = 3000
             connection.readTimeout = if (action == "status") 6000 else 125000
-            connection.setRequestProperty("Authorization", "Bearer $token.trim()")
+            connection.setRequestProperty("Authorization", "Bearer ${token.trim()}")
             connection.setRequestProperty("Accept", "application/json")
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
@@ -123,6 +129,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             var page by remember { mutableStateOf("home") }
             var driving by remember { mutableStateOf(false) }
             var bridgeToken by remember { mutableStateOf(prefs.getString("bridgeToken", "") ?: "") }
+            var bridgeDiagnostics by remember { mutableStateOf("") }
+            val appContext = LocalContext.current
 
             fun announceServer(text: String) {
                 reply = text
@@ -132,7 +140,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
             fun runServerAction(action: String) {
                 if (serverBusy) return
-                val token = bridgeToken.trim()
+                // Always use the most recently committed token, including after process recreation.
+                val token = prefs.getString("bridgeToken", "").orEmpty().trim().ifBlank { bridgeToken.trim() }
+                bridgeDiagnostics = "جارٍ الاتصال • رمز محفوظ: ${token.length} حرفًا"
                 if (token.isEmpty()) {
                     serverState = "يلزم إعداد رمز Bridge"
                     announceServer(if (language == "en") "Please set the local bridge token in settings, sir"
@@ -154,6 +164,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         val openjarvis = response.optBoolean("openjarvis", false)
                         mainHandler.post {
                             serverBusy = false
+                            bridgeDiagnostics = "HTTP 200 • تم التحقق من Bridge"
                             serverState = when {
                                 ready -> "يعمل"
                                 llama || openjarvis -> "يعمل جزئيًا"
@@ -173,6 +184,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         mainHandler.post {
                             serverBusy = false
                             serverState = "تعذر تنفيذ الأمر"
+                            bridgeDiagnostics = "${e.javaClass.simpleName}: ${e.message.orEmpty().take(130)} • طول الرمز: ${token.length}"
                             val detail = when {
                                 e.message?.contains("401") == true -> "رمز Bridge غير صحيح"
                                 e.message?.contains("stop_requires_safe_process_audit") == true -> "الإيقاف معطّل مؤقتًا لحماية عمليات السيرفر"
@@ -214,7 +226,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 prefs.edit().putString("mode", mode).putString("lanUrl", lanUrl.trim())
                     .putString("lanToken", lanToken).putString("remoteUrl", remoteUrl.trim())
                     .putString("remoteToken", remoteToken).putString("language", language)
-                    .putString("bridgeToken", bridgeToken.trim()).apply()
+                    .putString("bridgeToken", bridgeToken.trim()).commit()
             }
 
             fun phoneCommand(input: String): Boolean {
@@ -357,11 +369,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
             MaterialTheme(colorScheme = darkColorScheme(
                 primary = Color(0xFF58D7FF), onPrimary = Color(0xFF061421),
-                background = Color(0xFF071522), surface = Color(0xFF13283B),
-                onBackground = Color(0xFFE7F7FF), onSurface = Color(0xFFE7F7FF)
+                background = Color(0xFF071522), surface = Color(0xFF203246),
+                onBackground = Color(0xFFF5FAFF), onSurface = Color(0xFFF5FAFF),
+                onSurfaceVariant = Color(0xFFDFE9F2),
+                surfaceVariant = Color(0xFF293D51),
+                outline = Color(0xFF9FB4C8),
+                error = Color(0xFFFFB4AB), onError = Color(0xFF351014)
             )) {
-                Column(Modifier.fillMaxSize().background(Color(0xFF071522)).verticalScroll(rememberScrollState())
-                    .padding(horizontal = 18.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(Modifier.fillMaxSize().background(Color(0xFF071522))
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically) {
                         Column {
@@ -382,10 +400,25 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             }
                         }
                         Text("التحكم المحلي: 127.0.0.1:18766", style = MaterialTheme.typography.bodyMedium)
-                        OutlinedTextField(bridgeToken, { bridgeToken = it; prefs.edit().putString("bridgeToken", it.trim()).apply() },
+                        OutlinedTextField(bridgeToken, { bridgeToken = it.trim(); prefs.edit().putString("bridgeToken", it.trim()).commit() },
                             label = { Text("رمز Jarvis Bridge") },
                             visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(),
                             singleLine = true)
+                        Text("حالة الرمز: ${if (bridgeToken.isBlank()) "غير محفوظ" else "محفوظ (${bridgeToken.trim().length} حرفًا)"}",
+                            color = if (bridgeToken.isBlank()) Color(0xFFFFB4AB) else Color(0xFF9CF2D0))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = {
+                                val clipboard = appContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                val pasted = clipboard.primaryClip?.getItemAt(0)?.coerceToText(appContext)?.toString()?.trim().orEmpty()
+                                if (pasted.isNotEmpty()) {
+                                    bridgeToken = pasted
+                                    prefs.edit().putString("bridgeToken", pasted).commit()
+                                    bridgeDiagnostics = "تم لصق الرمز وحفظه (${pasted.length} حرفًا)"
+                                } else bridgeDiagnostics = "الحافظة فارغة"
+                            }, modifier = Modifier.weight(1f)) { Text("لصق الرمز") }
+                            Button(onClick = { saveSettings(); requestServerAction("status") }, modifier = Modifier.weight(1f)) { Text("اختبار Bridge") }
+                        }
+                        if (bridgeDiagnostics.isNotBlank()) Text(bridgeDiagnostics, color = Color(0xFFFFD68A), style = MaterialTheme.typography.bodySmall)
                         Text("انسخ الرمز من Termux ولا تشاركه أو ترفعه إلى GitHub.", style = MaterialTheme.typography.bodySmall)
                         OutlinedTextField(lanUrl, { lanUrl = it }, label = { Text("LAN HTTPS") }, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(lanToken, { lanToken = it }, label = { Text("رمز LAN") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
@@ -427,10 +460,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                                 OutlinedButton(onClick = { requestServerAction("status") }, enabled = !serverBusy,
                                     modifier = Modifier.fillMaxWidth()) { Text("↻ فحص الحالة") }
                                 Text("الاتصال: $activeConnection", style = MaterialTheme.typography.bodySmall)
+                                if (bridgeDiagnostics.isNotBlank()) Text(bridgeDiagnostics, color = Color(0xFFFFD68A), style = MaterialTheme.typography.bodySmall)
                             }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("وضع القيادة", modifier = Modifier.weight(1f))
+                            Text("وضع القيادة", color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f))
                             Switch(checked = driving, onCheckedChange = { driving = it })
                         }
                         OutlinedTextField(message, { message = it }, label = { Text(if (language == "en") "Your command" else "اكتب أمرك") },
@@ -443,6 +477,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             Text("أوامر الهاتف: افتح الإعدادات، حالة البطارية، ارفع الصوت، اخفض الصوت.", style = MaterialTheme.typography.bodySmall)
                         }
                     }
+                    Spacer(Modifier.height(16.dp))
                     if (confirmStop) {
                         AlertDialog(onDismissRequest = { confirmStop = false }, title = { Text("تأكيد الإيقاف") },
                             text = { Text("سيتم إيقاف OpenJarvis وllama.cpp. هل تريد المتابعة؟") },
