@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var ttsReady = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private var widgetVoiceRequest by mutableStateOf(false)
+    private var widgetActionRequest by mutableStateOf("")
     private val prefs by lazy { getSharedPreferences("server", MODE_PRIVATE) }
     private var currentLanguage = "ar"
 
@@ -87,6 +88,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.action == JarvisWidgetProvider.ACTION_VOICE) widgetVoiceRequest = true
+        if (intent.action == JarvisWidgetProvider.ACTION_START) widgetActionRequest = "start"
+        if (intent.action == JarvisWidgetProvider.ACTION_STOP) widgetActionRequest = "stop"
+        if (intent.action == JarvisWidgetProvider.ACTION_STATUS) widgetActionRequest = "status"
     }
 
     private fun setVoice(language: String) {
@@ -112,6 +116,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         super.onCreate(savedInstanceState)
         tts = TextToSpeech(this, this)
         widgetVoiceRequest = intent?.action == JarvisWidgetProvider.ACTION_VOICE
+        widgetActionRequest = when (intent?.action) {
+            JarvisWidgetProvider.ACTION_START -> "start"
+            JarvisWidgetProvider.ACTION_STOP -> "stop"
+            JarvisWidgetProvider.ACTION_STATUS -> "status"
+            else -> ""
+        }
         setContent {
             var mode by remember { mutableStateOf(prefs.getString("mode", "auto") ?: "auto") }
             var lanUrl by remember { mutableStateOf(prefs.getString("lanUrl", DEFAULT_LAN) ?: DEFAULT_LAN) }
@@ -165,6 +175,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         mainHandler.post {
                             serverBusy = false
                             bridgeDiagnostics = "HTTP 200 • تم التحقق من Bridge"
+                            JarvisWidgetProvider.updateStatus(appContext, if (ready) "● يعمل" else if (llama || openjarvis) "◐ جزئي" else "○ متوقف")
                             serverState = when {
                                 ready -> "يعمل"
                                 llama || openjarvis -> "يعمل جزئيًا"
@@ -184,6 +195,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         mainHandler.post {
                             serverBusy = false
                             serverState = "تعذر تنفيذ الأمر"
+                            JarvisWidgetProvider.updateStatus(appContext, "! تحقق من الاتصال")
                             bridgeDiagnostics = "${e.javaClass.simpleName}: ${e.message.orEmpty().take(130)} • طول الرمز: ${token.length}"
                             val detail = when {
                                 e.message?.contains("401") == true -> "رمز Bridge غير صحيح"
@@ -202,6 +214,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
 
             fun requestServerAction(action: String) = runServerAction(action)
+
+            LaunchedEffect(widgetActionRequest) {
+                when (widgetActionRequest) {
+                    "start", "status" -> {
+                        val action = widgetActionRequest
+                        widgetActionRequest = ""
+                        runServerAction(action)
+                    }
+                    "stop" -> {
+                        widgetActionRequest = ""
+                        confirmStop = true
+                    }
+                }
+            }
 
             fun switchLanguage(next: String) {
                 language = next
@@ -379,13 +405,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 Column(Modifier.fillMaxSize().background(Color(0xFF071522))
                     .windowInsetsPadding(WindowInsets.safeDrawing)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    .padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically) {
                         Column {
                             Text("J.A.R.V.I.S.", style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.Bold, color = Color(0xFF67DBFF))
-                            Text("PERSONAL AI  •  VERSION 4", style = MaterialTheme.typography.labelSmall)
+                            Text("PERSONAL AI  •  VERSION 5", style = MaterialTheme.typography.labelSmall, color = Color(0xFFB9D5E7))
                         }
                         TextButton(onClick = { page = if (page == "settings") "home" else "settings" }) {
                             Text(if (page == "settings") "الرئيسية" else "⚙ الإعدادات")
@@ -433,9 +459,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         Text("الاستماع التلقائي لكلمة جارفيس يحتاج محرك Wake Word محليًا. غير مفعل في هذه النسخة التجريبية.", style = MaterialTheme.typography.bodySmall)
                     } else {
                         Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
-                            Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                            Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("◉", fontSize = 78.sp, color = Color(0xFF59D9FF))
+                                Text("◉", fontSize = 56.sp, color = Color(0xFF59D9FF))
                                 Text(if (language == "en") "At your service, sir" else "في خدمتك سيدي", style = MaterialTheme.typography.titleLarge)
                                 Text("اضغط الميكروفون للتحدث • الاستماع التلقائي قيد التطوير", style = MaterialTheme.typography.bodySmall)
                                 Button(onClick = {
@@ -449,7 +475,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         Card(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Text("التحكم بالسيرفر", style = MaterialTheme.typography.titleLarge)
-                                Text("الحالة: $serverState")
+                                Text("الحالة: $serverState", color = if (serverState == "يعمل") Color(0xFF9CF2D0) else Color(0xFFF5FAFF), fontWeight = FontWeight.SemiBold)
                                 Text("Bridge: 127.0.0.1:18766", style = MaterialTheme.typography.bodySmall)
                                 Text("فحص Bridge مستقل عن اتصال المحادثة", style = MaterialTheme.typography.bodySmall)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -459,7 +485,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                                 }
                                 OutlinedButton(onClick = { requestServerAction("status") }, enabled = !serverBusy,
                                     modifier = Modifier.fillMaxWidth()) { Text("↻ فحص الحالة") }
-                                Text("الاتصال: $activeConnection", style = MaterialTheme.typography.bodySmall)
+                                Text("الاتصال: $activeConnection", style = MaterialTheme.typography.bodySmall, color = Color(0xFFDFE9F2))
                                 if (bridgeDiagnostics.isNotBlank()) Text(bridgeDiagnostics, color = Color(0xFFFFD68A), style = MaterialTheme.typography.bodySmall)
                             }
                         }
@@ -472,12 +498,12 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         Button(onClick = { send(message) }, enabled = !busy && message.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
                             Text(if (busy) "جاري المعالجة..." else "إرسال إلى جارفيس")
                         }
-                        Card(Modifier.fillMaxWidth()) { Text(reply, Modifier.padding(16.dp)) }
+                        Card(Modifier.fillMaxWidth()) { Text(reply, Modifier.padding(16.dp), color = Color(0xFFF5FAFF)) }
                         if (!driving) {
                             Text("أوامر الهاتف: افتح الإعدادات، حالة البطارية، ارفع الصوت، اخفض الصوت.", style = MaterialTheme.typography.bodySmall)
                         }
                     }
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(28.dp))
                     if (confirmStop) {
                         AlertDialog(onDismissRequest = { confirmStop = false }, title = { Text("تأكيد الإيقاف") },
                             text = { Text("سيتم إيقاف OpenJarvis وllama.cpp. هل تريد المتابعة؟") },
