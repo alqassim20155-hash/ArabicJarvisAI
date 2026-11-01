@@ -25,6 +25,9 @@ class JarvisWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.widget_start, launch(ACTION_START, 1003))
             views.setOnClickPendingIntent(R.id.widget_stop, launch(ACTION_STOP, 1004))
             views.setOnClickPendingIntent(R.id.widget_status, launch(ACTION_STATUS, 1005))
+            views.setOnClickPendingIntent(R.id.widget_camera, launch(ACTION_CAMERA, 1006))
+            views.setOnClickPendingIntent(R.id.widget_settings, launch(ACTION_SETTINGS, 1007))
+            views.setOnClickPendingIntent(R.id.widget_phone, launch(ACTION_PHONE, 1008))
             manager.updateAppWidget(id, views)
         }
     }
@@ -35,6 +38,9 @@ class JarvisWidgetProvider : AppWidgetProvider() {
         const val ACTION_START = "com.arabicjarvis.ai.WIDGET_START"
         const val ACTION_STOP = "com.arabicjarvis.ai.WIDGET_STOP"
         const val ACTION_STATUS = "com.arabicjarvis.ai.WIDGET_STATUS"
+        const val ACTION_CAMERA = "com.arabicjarvis.ai.WIDGET_CAMERA"
+        const val ACTION_SETTINGS = "com.arabicjarvis.ai.WIDGET_SETTINGS"
+        const val ACTION_PHONE = "com.arabicjarvis.ai.WIDGET_PHONE"
 
         fun updateStatus(context: Context, text: String) {
             val manager = AppWidgetManager.getInstance(context)

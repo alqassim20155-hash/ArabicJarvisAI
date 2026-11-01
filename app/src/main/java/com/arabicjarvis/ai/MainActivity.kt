@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.content.ComponentName
 import android.provider.Settings
+import android.provider.MediaStore
+import android.net.Uri
 import android.media.AudioManager
 import android.os.BatteryManager
 import android.content.Context
@@ -84,9 +86,20 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun launchWidgetShortcut(action: String?) {
+        val target = when (action) {
+            JarvisWidgetProvider.ACTION_CAMERA -> Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
+            JarvisWidgetProvider.ACTION_SETTINGS -> Intent(Settings.ACTION_SETTINGS)
+            JarvisWidgetProvider.ACTION_PHONE -> Intent(Intent.ACTION_DIAL)
+            else -> null
+        } ?: return
+        try { startActivity(target) } catch (_: Exception) { /* No compatible activity */ }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        launchWidgetShortcut(intent.action)
         if (intent.action == JarvisWidgetProvider.ACTION_VOICE) widgetVoiceRequest = true
         if (intent.action == JarvisWidgetProvider.ACTION_START) widgetActionRequest = "start"
         if (intent.action == JarvisWidgetProvider.ACTION_STOP) widgetActionRequest = "stop"
@@ -115,6 +128,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tts = TextToSpeech(this, this)
+        launchWidgetShortcut(intent?.action)
         widgetVoiceRequest = intent?.action == JarvisWidgetProvider.ACTION_VOICE
         widgetActionRequest = when (intent?.action) {
             JarvisWidgetProvider.ACTION_START -> "start"
@@ -260,6 +274,30 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 return when {
                     listOf("افتح الإعدادات", "افتح الاعدادات", "open settings").any { command.contains(it) } -> {
                         startActivity(Intent(Settings.ACTION_SETTINGS)); true
+                    }
+                    listOf("افتح الكاميرا", "شغل الكاميرا", "open camera").any { command.contains(it) } -> {
+                        try { startActivity(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)); announceServer("تم فتح الكاميرا") }
+                        catch (_: Exception) { announceServer("لم أجد تطبيق كاميرا متوافقًا") }
+                        true
+                    }
+                    listOf("افتح الهاتف", "افتح الاتصال", "open dialer").any { command.contains(it) } -> {
+                        startActivity(Intent(Intent.ACTION_DIAL)); true
+                    }
+                    listOf("افتح المتصفح", "open browser").any { command.contains(it) } -> {
+                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com"))); true
+                    }
+                    listOf("افتح واتساب", "open whatsapp", "افتح يوتيوب", "open youtube", "افتح تيليجرام", "open telegram").any { command.contains(it) } -> {
+                        val pkg = when {
+                            command.contains("واتساب") || command.contains("whatsapp") -> "com.whatsapp"
+                            command.contains("يوتيوب") || command.contains("youtube") -> "com.google.android.youtube"
+                            else -> "org.telegram.messenger"
+                        }
+                        try {
+                            val launch = packageManager.getLaunchIntentForPackage(pkg)
+                            if (launch != null) { startActivity(launch); announceServer("تم فتح التطبيق") }
+                            else announceServer("التطبيق غير متاح أو غير ظاهر للنظام")
+                        } catch (_: Exception) { announceServer("تعذر فتح التطبيق") }
+                        true
                     }
                     listOf("حالة البطارية", "كم البطارية", "battery level").any { command.contains(it) } -> {
                         val battery = getSystemService(Context.BATTERY_SERVICE) as BatteryManager

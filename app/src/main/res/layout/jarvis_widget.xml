@@ -1,27 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="match_parent"
-    android:orientation="vertical" android:padding="12dp"
+    android:orientation="vertical" android:padding="14dp"
     android:background="@drawable/widget_bg" android:layoutDirection="rtl">
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:text="◉  J.A.R.V.I.S." android:textColor="#64D9FF"
-        android:textSize="18sp" android:textStyle="bold" />
+        android:text="◉  J.A.R.V.I.S.   •   التحكم الذكي" android:textColor="#67DBFF"
+        android:textSize="17sp" android:textStyle="bold" />
     <TextView android:id="@+id/widget_status" android:layout_width="match_parent"
-        android:layout_height="wrap_content" android:layout_marginTop="3dp"
-        android:text="↻ فحص حالة السيرفر" android:textColor="#E6F2FA" android:textSize="12sp"
-        android:paddingTop="5dp" android:paddingBottom="5dp" />
+        android:layout_height="wrap_content" android:layout_marginTop="8dp"
+        android:text="الحالة: اضغط لفحص السيرفر" android:textColor="#F0F5FF" android:textSize="13sp"
+        android:paddingTop="4dp" android:paddingBottom="6dp" />
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="horizontal" android:layout_marginTop="6dp">
+        android:orientation="horizontal" android:layout_marginTop="8dp">
+        <TextView android:id="@+id/widget_voice" style="@style/JarvisWidgetButton"
+            android:text="🎙 تحدث" android:background="@drawable/widget_button" />
+        <TextView android:id="@+id/widget_chat" style="@style/JarvisWidgetButton"
+            android:layout_marginStart="8dp" android:text="◉ محادثة" android:background="@drawable/widget_button" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:layout_marginTop="8dp">
         <TextView android:id="@+id/widget_start" style="@style/JarvisWidgetButton"
             android:text="▶ تشغيل" android:background="@drawable/widget_button" />
         <TextView android:id="@+id/widget_stop" style="@style/JarvisWidgetButton"
             android:layout_marginStart="8dp" android:text="■ إيقاف" android:background="@drawable/widget_button" />
     </LinearLayout>
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="10dp" android:text="اختصارات الهاتف" android:textColor="#B8C8E0" android:textSize="12sp" />
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="horizontal" android:layout_marginTop="7dp">
-        <TextView android:id="@+id/widget_voice" style="@style/JarvisWidgetButton"
-            android:text="🎤 تحدث" android:background="@drawable/widget_button" />
-        <TextView android:id="@+id/widget_chat" style="@style/JarvisWidgetButton"
-            android:layout_marginStart="8dp" android:text="◉ محادثة" android:background="@drawable/widget_button" />
+        android:orientation="horizontal" android:layout_marginTop="5dp">
+        <TextView android:id="@+id/widget_camera" style="@style/JarvisWidgetButton"
+            android:text="◉ كاميرا" android:background="@drawable/widget_button" />
+        <TextView android:id="@+id/widget_phone" style="@style/JarvisWidgetButton"
+            android:layout_marginStart="7dp" android:text="☎ هاتف" android:background="@drawable/widget_button" />
+        <TextView android:id="@+id/widget_settings" style="@style/JarvisWidgetButton"
+            android:layout_marginStart="7dp" android:text="⚙ إعدادات" android:background="@drawable/widget_button" />
     </LinearLayout>
 </LinearLayout>
